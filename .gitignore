@@ -1,2 +1,5 @@
 datasets
 *.ipynb
+
+# python
+__pycache__
