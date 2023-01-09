@@ -3,3 +3,7 @@ datasets
 
 # python
 __pycache__
+
+checkpoints
+wandb
+.vscode
