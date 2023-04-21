@@ -1,0 +1,3 @@
+[submodule "panel-order-estimator"]
+	path = panel-order-estimator
+	url = https://github.com/manga109/panel-order-estimator.git
