@@ -119,8 +119,8 @@ class Page(object):
     labels = ["frame", "text", "face", "body"]
 
     def __init__(self, parent, page_index):
-        self.parent = parent
-        self.page_index = page_index
+        self.parent: Book = parent
+        self.page_index: int = page_index
 
         pagewidth = self.parent.annotations["page"][self.page_index]["@width"]
         pageheight = self.parent.annotations["page"][self.page_index]["@height"]
@@ -138,7 +138,7 @@ class Page(object):
 class Book(object):
     def __init__(self, title, loader=None, manga109_root_dir="./dataset/Manga109_released_2021_02_28"):
         self.manga109_root_dir = manga109_root_dir
-        self.title = title
+        self.title: str = title
         if loader is None:
             self.loader = manga109api.Parser(root_dir=manga109_root_dir)
         else:

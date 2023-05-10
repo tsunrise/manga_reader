@@ -1,90 +1,98 @@
-from typing import List
+from typing import Optional, TypedDict
 from torch.utils.data import Dataset
-from manga109api import Parser
-from dataclasses import dataclass
-from pathlib import Path
-from transformers import DetrImageProcessor
 from tqdm import tqdm
-from PIL import Image
-from transformers.models.detr.modeling_detr import DetrObjectDetectionOutput
-MANGA109_ROOT = "datasets/Manga109_released_2021_12_30"
 
-@dataclass
-class Page:
-    idx: int
-    image: Path
-    text_boxes: List[dict] # fields: @xmin, @xmax, @ymin, @ymax
+from manga109utils import Manga109Dataset, Page, BoundingBox
+from transformers.image_processing_utils import BaseImageProcessor
+import order_estimator
+
+MANGA109_ROOT = "datasets/Manga109_released_2021_12_30"
+order_estimator.interception_ratio_threshold = 0.25
+
+def _get_ordered_annotations(panels: list[BoundingBox], page_width: int) -> list[BoundingBox]:
+    est = order_estimator.BoxOrderEstimator(panels, pagewidth = page_width, initial_cut_option="two-page")
+    return est.ordered_bbs
+
+class ProcessedPage:
+    def __init__(self, page: Page) -> None:
+        self.page = page
+        bbs = page.get_bbs()
+        frame_annotations = _get_ordered_annotations(bbs["frame"], page.pagedims[0])
+        self.frame_bbs = [bounding_box_to_coco(bb, 0) for bb in frame_annotations]
+        self.text_bbs = [bounding_box_to_coco(bb, 1) for bb in bbs["text"]]
+
+class COCOFormat(TypedDict):
+    category_id: int
+    bbox: list[float] # [xmin, ymin, width, height]
+    area: float
+    iscrowd: int
+
+def bounding_box_to_coco(bb: BoundingBox, category_id: int) -> COCOFormat:
+    return {
+        "category_id": category_id,
+        "bbox": [bb.xmin, bb.ymin, bb.width, bb.height],
+        "area": bb.width * bb.height,
+        "iscrowd": 0,
+    }
+
+def coco_to_bounding_box(coco: COCOFormat) -> BoundingBox:
+    xmin, ymin, width, height = coco["bbox"]
+    xmax, ymax = xmin + width, ymin + height
+    return BoundingBox(xmin, xmax, ymin, ymax)
 
 class MangaDataset(Dataset):
-    def __init__(self, format_as="facebook/detr-resnet-50"):
+    """
+    A dataset of manga pages, annotated with bounding boxes for frames and text, using the COCO format.
+    """
+    def __init__(self, book = None, root = MANGA109_ROOT, text_annotations = True, frame_annotations = True, transform: Optional[BaseImageProcessor] = None):
         super().__init__()
-        self.base_model_name = format_as
-        self.transform = DetrImageProcessor.from_pretrained(format_as)
-        self.pages: List[Page] = []
+        dataset = Manga109Dataset(root)
+        if book is None:
+            books = dataset.get_book_iter()
+        elif isinstance(book, str):
+            books = [book]
+        elif isinstance(book, list):
+            books = book
+        else:
+            raise TypeError(f"book must be str or list[str], not {type(book)}")
+        self.pages: list[ProcessedPage] = []
+        for book in tqdm(books, desc="Loading Annotations", total=109):
+            for page in book.get_page_iter():
+                self.pages.append(ProcessedPage(page))
 
-    def load_from_disk(self):
-        api = Parser(MANGA109_ROOT)
-        # load image paths and page annotations
-        for book in tqdm(api.books, desc="Loading Annotations"):
-            annotation = api.get_annotation(book)
-            for page, val in enumerate(annotation["page"]):
-                text_boxes = self._get_text_boxes(val) # type: ignore
-                image_path = Path(api.img_path(book, page))
-                self.pages.append(Page(len(self.pages), image_path, text_boxes))
+        self.need_text_annotations = text_annotations
+        self.need_frame_annotations = frame_annotations
+        self.transform = transform
 
     def __len__(self):
         return len(self.pages)
-
-    def __getitem__(self, index):
-        # to COCO format
+    
+    def __getitem__(self, index: int):
+        image = self.pages[index].page.get_image()
         annotations = []
-        for box in self.pages[index].text_boxes:
-            xmin, ymin = box["@xmin"], box["@ymin"]
-            width, height = box["@xmax"] - xmin, box["@ymax"] - ymin
-            area = width * height
-            annotations.append({
-                "category_id": 0,
-                "bbox": [xmin, ymin, width, height],
-                "area": area,
-                "iscrowd": 0,
-            })
-        
+        if self.need_text_annotations:
+            annotations += self.pages[index].text_bbs
+        if self.need_frame_annotations:
+            annotations += self.pages[index].frame_bbs
         return {
-            "image": Image.open(self.pages[index].image),
+            "image": image,
             "target": {
-                # coco format
-                "image_id": self.pages[index].idx,
+                "image_id": index,
                 "annotations": annotations,
             }
         }
-
+    
     def collate_fn(self, batch):
-        images = [x["image"] for x in batch]
-        targets = [x["target"] for x in batch]
-        
-        # batch transform images, now bbox is normalized [x_center, y_center, width, height]
-        return self.transform.preprocess(images, targets, return_tensors="pt") # type: ignore
- # type: ignore # type: ignore
-    @staticmethod
-    def _get_text_boxes(annotation: dict):
-        stack = [annotation]
-        text_boxes = []
-        while stack:
-            frame = stack.pop()
-            if "frame" in frame:
-                stack.extend(frame["frame"])
-            if "text" in frame:
-                text_boxes.extend(frame["text"])
-        return text_boxes
-
-    def post_process(self, batch, outputs: List[DetrObjectDetectionOutput], threshold=0.5):
-        image_sizes = [x['size'] for x in batch.labels]
-        outputs = self.transform.post_process_object_detection(outputs, threshold, target_sizes=image_sizes) # type: ignore
-
-    def gather(self, indices):
+        if self.transform is None:
+            raise ValueError("transform must be set to use collate_fn")
+        images = [item["image"] for item in batch]
+        targets = [item["target"] for item in batch]
+        batch = self.transform.preprocess(images, targets, return_tensors="pt")
+        return batch
+    
+    def gather(self, indices: list[int]):
         pages = [self.pages[i] for i in indices]
-        dataset = MangaDataset(self.base_model_name)
-
+        dataset = MangaDataset([], text_annotations=self.need_text_annotations, frame_annotations=self.need_frame_annotations, transform=self.transform)
         dataset.pages = pages
         return dataset
 
@@ -96,11 +104,5 @@ class MangaDataset(Dataset):
         train_indices = indices[:int(len(self) * train_size)]
         test_indices = indices[int(len(self) * train_size):]
         return self.gather(train_indices), self.gather(test_indices)
-
-    @property
-    def id2label(self):
-        return {0: "text"}
-
-    @property
-    def label2id(self):
-        return {"text": 0}
+    
+ 

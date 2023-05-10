@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from transformers import TrainingArguments, Trainer
 from constant import DETR_PRETRAINED
-from dataset import MangaDataset
+from dataset_legacy import MangaDataset
 from model import get_model
 
 @dataclass
