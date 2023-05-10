@@ -92,11 +92,6 @@ class FrameDetectionModel(DetectionModel):
 class TextDetectionModel(DetectionModel):
     def build_dataset(self) -> MangaDataset:
         return MangaDataset(frame_annotations=False, text_annotations=True)
-    
-# TODO: Implement the FrameDetectionModel and TextDetectionModel
-
-
-
 
 
 # from transformers import DetrForObjectDetection
