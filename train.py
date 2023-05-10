@@ -19,6 +19,10 @@ class TrainConfig:
         import toml
         with open(path, "r") as f:
             return TrainConfig(**(toml.load(f)["train"]))
+        
+    @staticmethod
+    def from_args(args):
+        return TrainConfig(**vars(args))
 
 
 def train(config: TrainConfig):

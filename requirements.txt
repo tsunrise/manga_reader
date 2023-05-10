@@ -1,0 +1,3 @@
+transformers
+manga109api
+wandb
