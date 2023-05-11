@@ -1,0 +1,5 @@
+transformers
+manga109api
+unidic-lite
+manga-ocr
+sentence-transformers
