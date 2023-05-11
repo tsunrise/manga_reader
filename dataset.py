@@ -33,6 +33,10 @@ class COCOTarget(TypedDict):
     image_id: int
     annotations: list[COCOFormat]
 
+class DatasetItem(TypedDict):
+    image: Image
+    target: COCOTarget
+
 def bounding_box_to_coco(bb: BoundingBox, category_id: int) -> COCOFormat:
     return {
         "category_id": category_id,
@@ -95,7 +99,7 @@ class MangaDataset(Dataset):
     def __len__(self):
         return len(self.pages)
     
-    def __getitem__(self, index: int):
+    def __getitem__(self, index: int) -> DatasetItem:
         image = self.pages[index].page.get_image()
         annotations = []
         if self.need_text_annotations:

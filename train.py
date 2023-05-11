@@ -20,7 +20,14 @@ def main():
     # just for debug: small scale training
     ds = ds.gather(list(range(32)))
 
-    detr_model.train(train_config, ds)
+    # detr_model.train(train_config, ds)
+
+    # prediction demo
+    indices = [2,3]
+    images = [ds[i]["image"] for i in indices]
+    target_sizes = [(image.height, image.width) for image in images]
+    bbs = detr_model.predict(images, target_sizes)
+    print(bbs)
 
 if __name__ == "__main__":
     main()

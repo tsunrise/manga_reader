@@ -27,12 +27,15 @@ class DetectionModel(ABC):
         self.image_process = self.build_image_processor()
         self.collate_fn = build_collate_fn(self.image_process)
 
-    def predict(self, images: list[Image]) -> list[list[BoundingBox, float]]:
+    def predict(self, images: list[Image], target_sizes: list[tuple]) -> list[list[BoundingBox, float]]:
+        """
+        `target_sizes`: a list of tuples (height, width) of the target images.
+        """
         self.model.eval()
-        batch = self.image_process(images)
+        batch = self.image_process(images).to(self.device)
         with torch.no_grad():
             outputs = self.model(**batch)
-            result = self.image_process.post_process_to_bounding_box_list(outputs)
+            result = self.image_process.post_process_to_bounding_box_list(outputs, target_sizes)
         return result
 
     @abstractmethod
