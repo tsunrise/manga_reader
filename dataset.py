@@ -1,9 +1,9 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, TypedDict
+from typing import Optional, TypedDict, Union
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from manga109utils import Manga109Dataset, Page, BoundingBox
+from manga109utils import Manga109Dataset, Page, BoundingBox, Book
 import order_estimator
 from PIL.Image import Image
 import numpy as np
@@ -58,9 +58,11 @@ class ImageProcessor(ABC):
         pass
 
     @abstractmethod
-    def postprocess_to_bounding_box_list(self, output) -> list[list[BoundingBox]]:
+    def post_process_to_bounding_box_list(self, output, target_sizes: list[tuple]) -> list[list[tuple[BoundingBox, float]]]:
         """
         Converts the output of the model to a list of bounding boxes for each image.
+        `target_sizes`: a list of tuples (height, width) of the target images.
+        Returns a list of lists of tuples (bounding box, score).
         """
         pass
 
@@ -73,16 +75,17 @@ class MangaDataset(Dataset):
         dataset = Manga109Dataset(root)
         if book is None:
             books = dataset.get_book_iter()
-        elif isinstance(book, str):
+        elif isinstance(book, Book):
             books = [book]
         elif isinstance(book, list):
             books = book
         else:
-            raise TypeError(f"book must be str or list[str], not {type(book)}")
+            raise TypeError(f"book must be Book or list[Book], not {type(book)}")
         self.pages: list[ProcessedPage] = []
-        for book in tqdm(books, desc="Loading Annotations", total=109):
-            for page in book.get_page_iter():
-                self.pages.append(ProcessedPage(page))
+        if len(books) > 0:
+            for book in tqdm(books, desc="Loading Annotations", total=109):
+                for page in book.get_page_iter():
+                    self.pages.append(ProcessedPage(page))
 
         self.need_text_annotations = text_annotations
         self.need_frame_annotations = frame_annotations
@@ -109,7 +112,7 @@ class MangaDataset(Dataset):
     
     def gather(self, indices: list[int]):
         pages = [self.pages[i] for i in indices]
-        dataset = MangaDataset([], text_annotations=self.need_text_annotations, frame_annotations=self.need_frame_annotations, preprocess=self.transform)
+        dataset = MangaDataset(self.transform, book=[], text_annotations=self.need_text_annotations, frame_annotations=self.need_frame_annotations)
         dataset.pages = pages
         return dataset
 
@@ -135,3 +138,4 @@ def build_collate_fn(transform: ImageProcessor, with_labels = True):
             images = [item["image"] for item in batch]
             batch = transform(images, None)
         return collate_fn
+    

@@ -1,3 +1,4 @@
 transformers
 manga109api
 wandb
+simple_parsing
