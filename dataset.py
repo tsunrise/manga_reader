@@ -1,10 +1,12 @@
-from typing import Optional, TypedDict
+from abc import ABC, abstractmethod
+from typing import Callable, Optional, TypedDict
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from manga109utils import Manga109Dataset, Page, BoundingBox
-from transformers.image_processing_utils import BaseImageProcessor
 import order_estimator
+from PIL.Image import Image
+import numpy as np
 
 MANGA109_ROOT = "datasets/Manga109_released_2021_12_30"
 order_estimator.interception_ratio_threshold = 0.25
@@ -27,6 +29,10 @@ class COCOFormat(TypedDict):
     area: float
     iscrowd: int
 
+class COCOTarget(TypedDict):
+    image_id: int
+    annotations: list[COCOFormat]
+
 def bounding_box_to_coco(bb: BoundingBox, category_id: int) -> COCOFormat:
     return {
         "category_id": category_id,
@@ -40,11 +46,29 @@ def coco_to_bounding_box(coco: COCOFormat) -> BoundingBox:
     xmax, ymax = xmin + width, ymin + height
     return BoundingBox(xmin, xmax, ymin, ymax)
 
+class ImageProcessor(ABC):
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def __call__(self, images: list[Image], targets: Optional[list[COCOTarget]] = None) -> dict:
+        return self.preprocess(images, targets)
+
+    @abstractmethod
+    def preprocess(self, images: list[Image], targets: Optional[list[COCOTarget]] = None) -> dict:
+        pass
+
+    @abstractmethod
+    def postprocess_to_bounding_box_list(self, output) -> list[list[BoundingBox]]:
+        """
+        Converts the output of the model to a list of bounding boxes for each image.
+        """
+        pass
+
 class MangaDataset(Dataset):
     """
     A dataset of manga pages, annotated with bounding boxes for frames and text, using the COCO format.
     """
-    def __init__(self, book = None, root = MANGA109_ROOT, text_annotations = True, frame_annotations = True, transform: Optional[BaseImageProcessor] = None):
+    def __init__(self, preprocess: ImageProcessor, book = None,  root = MANGA109_ROOT, text_annotations = True, frame_annotations = True):
         super().__init__()
         dataset = Manga109Dataset(root)
         if book is None:
@@ -62,7 +86,8 @@ class MangaDataset(Dataset):
 
         self.need_text_annotations = text_annotations
         self.need_frame_annotations = frame_annotations
-        self.transform = transform
+        self.transform = preprocess
+        self.collate_fn = build_collate_fn(preprocess)
 
     def __len__(self):
         return len(self.pages)
@@ -82,17 +107,9 @@ class MangaDataset(Dataset):
             }
         }
     
-    def collate_fn(self, batch):
-        if self.transform is None:
-            raise ValueError("transform must be set to use collate_fn")
-        images = [item["image"] for item in batch]
-        targets = [item["target"] for item in batch]
-        batch = self.transform.preprocess(images, targets, return_tensors="pt")
-        return batch
-    
     def gather(self, indices: list[int]):
         pages = [self.pages[i] for i in indices]
-        dataset = MangaDataset([], text_annotations=self.need_text_annotations, frame_annotations=self.need_frame_annotations, transform=self.transform)
+        dataset = MangaDataset([], text_annotations=self.need_text_annotations, frame_annotations=self.need_frame_annotations, preprocess=self.transform)
         dataset.pages = pages
         return dataset
 
@@ -105,4 +122,16 @@ class MangaDataset(Dataset):
         test_indices = indices[int(len(self) * train_size):]
         return self.gather(train_indices), self.gather(test_indices)
     
- 
+def build_collate_fn(transform: ImageProcessor, with_labels = True):
+    if with_labels:
+        def collate_fn(batch):
+            images = [item["image"] for item in batch]
+            targets = [item["target"] for item in batch]
+            batch = transform(images, targets)
+            return batch
+        return collate_fn
+    else:
+        def collate_fn(batch):
+            images = [item["image"] for item in batch]
+            batch = transform(images, None)
+        return collate_fn
