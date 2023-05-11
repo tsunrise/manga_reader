@@ -3,6 +3,7 @@ from PIL import Image
 import manga109api
 import pathlib
 import os
+from constant import MANGA109_ROOT
 
 class BoundingBox(object):
     def __init__(self, xmin=None, ymin=None, xmax=None, ymax=None,
@@ -136,7 +137,7 @@ class Page(object):
 
 
 class Book(object):
-    def __init__(self, title, loader=None, manga109_root_dir="./dataset/Manga109_released_2021_02_28"):
+    def __init__(self, title, loader=None, manga109_root_dir=MANGA109_ROOT):
         self.manga109_root_dir = manga109_root_dir
         self.title: str = title
         if loader is None:

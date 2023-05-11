@@ -2,3 +2,6 @@ transformers
 manga109api
 wandb
 simple_parsing
+unidic-lite
+manga-ocr
+sentence-transformers
