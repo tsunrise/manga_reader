@@ -20,7 +20,7 @@ def main():
     # just for debug: small scale training
     ds = ds.gather(list(range(32)))
 
-    # detr_model.train(train_config, ds)
+    detr_model.train(train_config, ds)
 
     # prediction demo
     indices = [2,3]
