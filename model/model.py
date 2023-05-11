@@ -87,13 +87,3 @@ class DetectionModel(ABC):
 
         trainer.train(resume_from_checkpoint=resume_from_checkpoint) 
         trainer.save_model()
-
-class FrameDetectionModel(DetectionModel):
-    def build_dataset(self) -> MangaDataset:
-        transform = self.build_image_processor()
-        return MangaDataset(frame_annotations=True, text_annotations=False, preprocess=transform)
-    
-class TextDetectionModel(DetectionModel):
-    def build_dataset(self) -> MangaDataset:
-        transform = self.build_image_processor()
-        return MangaDataset(frame_annotations=False, text_annotations=True, preprocess=transform)
