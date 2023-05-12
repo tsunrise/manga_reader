@@ -6,3 +6,5 @@ unidic-lite
 manga-ocr
 sentence-transformers
 torchmetrics
+timm
+accelerate
