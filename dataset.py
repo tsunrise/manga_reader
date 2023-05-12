@@ -74,7 +74,7 @@ class MangaDataset(Dataset):
     """
     A dataset of manga pages, annotated with bounding boxes for frames and text, using the COCO format.
     """
-    def __init__(self, preprocess: ImageProcessor, book = None,  root = MANGA109_ROOT, text_annotations = True, frame_annotations = True):
+    def __init__(self, preprocess: ImageProcessor, book = None, root = MANGA109_ROOT, text_annotations = True, frame_annotations = True):
         super().__init__()
         dataset = Manga109Dataset(root)
         if book is None:
@@ -84,9 +84,9 @@ class MangaDataset(Dataset):
         elif isinstance(book, list):
             books = book
         else:
-            raise TypeError(f"book must be Book or list[Book], not {type(book)}")
+            raise TypeError(f"book must be Book or list[Book] or None, not {type(book)}")
         self.pages: list[ProcessedPage] = []
-        if len(books) > 0:
+        if not (isinstance(book, list) and len(books) == 0):
             for book in tqdm(books, desc="Loading Annotations", total=109):
                 for page in book.get_page_iter():
                     self.pages.append(ProcessedPage(page))
