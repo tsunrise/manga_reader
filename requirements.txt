@@ -5,3 +5,4 @@ simple_parsing
 unidic-lite
 manga-ocr
 sentence-transformers
+torchmetrics
