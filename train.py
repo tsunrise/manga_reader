@@ -10,11 +10,15 @@ def main():
     parser = ArgumentParser()
     # training config
     parser.add_arguments(TrainConfig, dest="config")
+    parser.add_argument("--detection_task", type=str, help='frame detection, text detection, or frame and text detection',
+                        choices=('frame', 'text', "frame_text"), default="frame")
     args = parser.parse_args()
     train_config: TrainConfig = args.config
     detr_model = DetrFrameDetectionModel()
 
-    ds = MangaDataset(detr_model.image_process, frame_annotations=True, text_annotations=False)
+    frame_annotations = args.detection_task in ("frame", "frame_text")
+    text_annotations = args.detection_task in ("text", "frame_text")
+    ds = MangaDataset(detr_model.image_process, frame_annotations=frame_annotations, text_annotations=text_annotations)
 
     detr_model.train(train_config, ds)
 

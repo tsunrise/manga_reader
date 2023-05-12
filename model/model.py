@@ -3,6 +3,7 @@ from PIL.Image import Image
 from manga109utils import BoundingBox
 from transformers import PreTrainedModel, TrainingArguments, Trainer
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from tqdm import tqdm
 
 from dataset import MangaDataset, build_collate_fn, ImageProcessor
 from dataclasses import dataclass
@@ -93,18 +94,33 @@ class DetectionModel(ABC):
         trainer.train(resume_from_checkpoint=resume_from_checkpoint) 
         trainer.save_model()
         trainer.log_metrics( "eval", self.evaluate(val_dataset))
-    
+
     def evaluate(self, val_dataset: MangaDataset):
-        self.model.eval()
-        loader = torch.utils.data.DataLoader(val_dataset, batch_size=5, shuffle=False, collate_fn=val_dataset.collate_fn)
+        
+        def collate_fn(batch):
+            images = [item["image"] for item in batch]
+            annotations = [item["target"]["annotations"] for item in batch]
+            target = []
+            for annotation in annotations:
+                boxes = []
+                labels = torch.tensor([a["category_id"] for a in annotation])
+                for a in annotation:
+                    xmin, ymin, width, height = a["bbox"]
+                    boxes.append(torch.tensor([xmin, ymin, xmin+width, ymin+height])) # need bb in format (xyxy) for map evaluation
+                stacked_boxes = torch.stack(boxes) if boxes!=[] else torch.tensor([])
+                target.append({"boxes": stacked_boxes.to(self.device), "labels":labels.to(self.device)})
+            return images, target
+        
         metric = MeanAveragePrecision()
+        loader = torch.utils.data.DataLoader(val_dataset, batch_size=5, shuffle=False, collate_fn=collate_fn)
+        self.model.eval()
         with torch.no_grad():
-            for batch in loader:
-                outputs = self.model(**batch)
-                outputs.logits = outputs.logits.cpu()
-                outputs.pred_boxes = outputs.pred_boxes.cpu()
-                # target_sizes = [image["size"] for image in batch["labels"]]
-                preds = self.image_process.processor.post_process_object_detection(outputs, threshold=0.5)
-                target = [{"boxes": image["boxes"], "labels":image["class_labels"]} for image in batch["labels"]]
+            for batch in tqdm(loader, desc="Evaluation"):
+                images, target = batch
+                processed_batch = self.image_process(images).to(self.device)
+                outputs = self.model(**processed_batch)
+                target_sizes = [(image.height, image.width) for image in images]
+                preds = self.image_process.processor.post_process_object_detection(outputs, threshold=0.5, target_sizes=target_sizes)   
                 metric.update(preds, target)
         return metric.compute()
+    
