@@ -12,11 +12,11 @@ import torch
 class TrainConfig:
     output_dir: str = "checkpoints"
     num_train_epochs: int = 10
-    save_steps: int = 200
+    save_steps: int = 1000
     logging_steps: int = 50
     do_eval: bool = True
     evaluation_strategy: str = "steps"
-    eval_steps: int = 100
+    eval_steps: int = 500
     learning_rate: float = 1e-4
     batch_size: int = 8
     seed: int = 42
