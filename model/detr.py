@@ -26,11 +26,14 @@ class DetrImagePipeline(ImageProcessor):
         out = self.processor.post_process_object_detection(output, threshold=0.5, target_sizes=target_sizes)
         result = []
         for item in out:
+            item_result = []
             boxes = item["boxes"]
             scores = item["scores"]
-            for box, score in zip(boxes, scores):
+            labels = item["labels"]
+            for box, score, label in zip(boxes, scores, labels):
                 xmin, ymin, xmax, ymax = box
-                result.append((BoundingBox(xmin, xmax, ymin, ymax), score))
+                item_result.append((BoundingBox(xmin, ymin, xmax, ymax, bbtype=label), score))
+            result.append(item_result)
         return result
     
 class DetrFrameDetectionModel(DetectionModel):
