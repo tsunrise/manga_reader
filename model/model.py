@@ -24,33 +24,40 @@ class TrainConfig:
 
 class DetectionModel(ABC):
 
-    def __init__(self) -> None:
+    def __init__(self, name_or_path=None) -> None:
         super().__init__()
+        if name_or_path is None:
+            name_or_path = self._default_pretrained_name_or_path()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.model = self.build_model().to(self.device)
-        self.image_process = self.build_image_processor()
+        self.model = self.build_model(name_or_path).to(self.device)
+        self.image_process = self.build_image_processor(name_or_path)
         self.collate_fn = build_collate_fn(self.image_process)
 
-    def predict(self, images: list[Image], target_sizes: list[tuple]) -> list[list[BoundingBox, float]]:
-        """
-        `target_sizes`: a list of tuples (height, width) of the target images.
-        """
+    def predict(self, images: list[Image]) -> list[list[tuple[BoundingBox, float]]]:
         self.model.eval()
         batch = self.image_process(images).to(self.device)
+        target_sizes = [(image.height, image.width) for image in images]
         with torch.no_grad():
             outputs = self.model(**batch)
             result = self.image_process.post_process_to_bounding_box_list(outputs, target_sizes)
         return result
 
     @abstractmethod
-    def build_model(self) -> PreTrainedModel:
+    def _default_pretrained_name_or_path(self) -> str:
+        """
+        Return the default pretrained name or path.
+        """
+        pass
+
+    @abstractmethod
+    def build_model(self, name_or_path) -> PreTrainedModel:
         """
         Return a pretrained model used for training.
         """
         pass
 
     @abstractmethod
-    def build_image_processor(self) -> ImageProcessor:
+    def build_image_processor(self, name_or_path) -> ImageProcessor:
         """
         Return a function that preprocesses a list of images, and optionally a list of bounding boxes as COCO format.
         """

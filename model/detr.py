@@ -6,6 +6,12 @@ from model.model import DetectionModel
 
 from transformers import DetrImageProcessor, PreTrainedModel, DetrForObjectDetection
 from transformers.models.detr.modeling_detr import DetrObjectDetectionOutput
+from constant import FRAME_LABEL, TEXT_LABEL
+
+_category_id_to_label = {
+    FRAME_LABEL: "frame",
+    TEXT_LABEL: "text",
+}
 
 class DetrImagePipeline(ImageProcessor):
     def __init__(self, pretrained_model_name_or_path: Optional[str] = None) -> None:
@@ -32,16 +38,19 @@ class DetrImagePipeline(ImageProcessor):
             labels = item["labels"]
             for box, score, label in zip(boxes, scores, labels):
                 xmin, ymin, xmax, ymax = box
-                item_result.append((BoundingBox(xmin, ymin, xmax, ymax, bbtype=label), score))
+                item_result.append((BoundingBox(float(xmin), float(ymin), float(xmax), float(ymax), bbtype=label), score))
             result.append(item_result)
         return result
     
 class DetrFrameDetectionModel(DetectionModel):
-    def build_model(self) -> PreTrainedModel:
-        return DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50")
+    def _default_pretrained_name_or_path(self) -> str:
+        return "facebook/detr-resnet-50"
+
+    def build_model(self, name_or_path) -> PreTrainedModel:
+        return DetrForObjectDetection.from_pretrained(name_or_path)
     
-    def build_image_processor(self) -> ImageProcessor:
-        return DetrImagePipeline("facebook/detr-resnet-50")
+    def build_image_processor(self, _name_or_path) -> ImageProcessor:
+        return DetrImagePipeline(self._default_pretrained_name_or_path())
     
 
         
