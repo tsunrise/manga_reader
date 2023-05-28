@@ -33,13 +33,26 @@ class DetectionModel(ABC):
         self.image_process = self.build_image_processor(name_or_path)
         self.collate_fn = build_collate_fn(self.image_process)
 
-    def predict(self, images: list[Image]) -> list[list[tuple[BoundingBox, float]]]:
+    def predict(self, images: list[Image], batch_size = 4) -> list[list[tuple[BoundingBox, float]]]:
         self.model.eval()
-        batch = self.image_process(images).to(self.device)
         target_sizes = [(image.height, image.width) for image in images]
-        with torch.no_grad():
-            outputs = self.model(**batch)
-            result = self.image_process.post_process_to_bounding_box_list(outputs, target_sizes)
+        target_sizes_chunks = [target_sizes[i:i + batch_size] for i in range(0, len(target_sizes), batch_size)]
+        dataloader = torch.utils.data.DataLoader(
+            images,
+            batch_size=batch_size,
+            shuffle=False,
+            collate_fn=self.image_process
+        )
+        result_tensor = []
+        for batch in tqdm(dataloader):
+            batch = batch.to(self.device)
+            with torch.no_grad():
+                outputs = self.model(**batch)
+                result_tensor.append(outputs)
+
+        result = []
+        for outputs, target_sizes_chunk in zip(result_tensor, target_sizes_chunks):
+            result += self.image_process.post_process_to_bounding_box_list(outputs, target_sizes_chunk)
         return result
 
     @abstractmethod

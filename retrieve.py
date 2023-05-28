@@ -2,13 +2,14 @@ from abc import ABC, abstractmethod
 from model.model import DetectionModel
 from PIL.Image import Image
 from typing import Optional, TypedDict
-from manga109utils import BoundingBox
+from manga109utils import BoundingBox, Book
 from constant import TEXT_LABEL
 from manga_ocr import MangaOcr
 from tqdm import tqdm
 import torch
 import numpy as np
 from sentence_transformers import SentenceTransformer, util
+
 
 class LabeledCrops(TypedDict):
     data: Image
@@ -146,17 +147,17 @@ class SentBertMultilingual(TextSearchEngine):
         return [(self.texts[idx], score) for idx, score in zip(top_results_idx, top_results)]
 
 
-
 class EndToEndTranscriptRetriever(TranscriptRetriever):
-    def __init__(self, detection_model: DetectionModel, manga_ocr_model: Optional[MangaOcr]=None) -> None:
-        # from sentence_transformers import SentenceTransformer
+    def __init__(self, detection_model: DetectionModel, manga_ocr_model: Optional[MangaOcr]=None, text_search_engine: Optional[TextSearchEngine]=None) -> None:
         super().__init__()
 
         self.detection_model = detection_model
         if not manga_ocr_model:
             manga_ocr_model = MangaOcr()
         self.manga_ocr_model = manga_ocr_model
-        # self.embedding_model = SentenceTransformer(embedding_model_path)
+        if not text_search_engine:
+            text_search_engine = SentBertJapanese()
+        self.text_search_engine = text_search_engine
 
     def _get_crops(self, images: list[Image]) -> list[LabeledCrops]:
         bounding_boxes_raw = self.detection_model.predict(images)
@@ -170,7 +171,8 @@ class EndToEndTranscriptRetriever(TranscriptRetriever):
                 crops.append({
                     "data": data,
                     "page": page,
-                    "location": bounding_box
+                    "location": bounding_box,
+                    "bb_score": score,
                 })
 
         return crops
@@ -181,12 +183,27 @@ class EndToEndTranscriptRetriever(TranscriptRetriever):
         # for each crop, get the text using mangaOCR
         self.labeled_texts: list[LabeledText] = []
         for crop in tqdm(crops, desc="OCR"):
+            # TODO: use MangaOCR in batches to speed up inference
             text = self.manga_ocr_model(crop["data"])
             self.labeled_texts.append({
                 "text": text,
                 "page": crop["page"],
-                "location": crop["location"]
+                "location": crop["location"],
+                "bb_score": crop["bb_score"],
             })
+        # index the texts
+        print("Indexing texts...")
+        self.text_search_engine.index(self.labeled_texts)
+
+    def index_book(self, book: Book, max_pages=None) -> None:
+        # load images
+        images = [page.get_image() for page in book.get_page_iter(max_pages)]
+        self.index(images)
+
+
+    def query(self, query: str, top_k: int = -1) -> list[tuple[LabeledText, float]]:
+        return self.text_search_engine.query(query, top_k=top_k)        
+
 
         
         
