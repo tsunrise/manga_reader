@@ -7,6 +7,7 @@ from manga109utils import Manga109Dataset, Page, BoundingBox, Book
 import order_estimator
 from PIL.Image import Image
 import numpy as np
+from constant import FRAME_LABEL, TEXT_LABEL
 
 MANGA109_ROOT = "datasets/Manga109_released_2021_12_30"
 order_estimator.interception_ratio_threshold = 0.25
@@ -20,8 +21,8 @@ class ProcessedPage:
         self.page = page
         bbs = page.get_bbs()
         frame_annotations = _get_ordered_annotations(bbs["frame"], page.pagedims[0])
-        self.frame_bbs = [bounding_box_to_coco(bb, 0) for bb in frame_annotations]
-        self.text_bbs = [bounding_box_to_coco(bb, 1) for bb in bbs["text"]]
+        self.frame_bbs = [bounding_box_to_coco(bb, FRAME_LABEL) for bb in frame_annotations]
+        self.text_bbs = [bounding_box_to_coco(bb, TEXT_LABEL) for bb in bbs["text"]]
 
 class COCOFormat(TypedDict):
     category_id: int
