@@ -8,6 +8,7 @@ from manga_ocr import MangaOcr
 from tqdm import tqdm
 import torch
 import numpy as np
+from sentence_transformers import SentenceTransformer, util
 
 class LabeledCrops(TypedDict):
     data: Image
@@ -62,6 +63,7 @@ class TextSearchEngine(ABC):
         pass
 
 class SentBertJapanese(TextSearchEngine):
+    # pooling and encode function adapted from https://huggingface.co/sonoisa/sentence-bert-base-ja-mean-tokens-v2
     def __init__(self, model_name_or_path = "sonoisa/sentence-bert-base-ja-mean-tokens-v2", device=None) -> None:
         super().__init__()
         from transformers import BertJapaneseTokenizer, BertModel
@@ -114,21 +116,34 @@ class SentBertJapanese(TextSearchEngine):
         # sort by cosine similarity
         if top_k == -1:
             top_k = len(self.texts)
-        top_results = torch.topk(cos_sim, k=top_k)
-        top_results = top_results[0].tolist()
-        top_results = [(self.texts[i], score) for i, score in enumerate(top_results)]
-        top_results = sorted(top_results, key=lambda x: x[1], reverse=True)
-        return top_results
+        top_results, top_results_idx = torch.topk(cos_sim, k=top_k)
+        top_results = top_results.tolist()
+        top_results_idx = top_results_idx.tolist()
+        
+        return [(self.texts[idx], score) for idx, score in zip(top_results_idx, top_results)]
     
 
 class SentBertMultilingual(TextSearchEngine):
     def __init__(self, model_name_or_path="sentence-transformers/distiluse-base-multilingual-cased-v2") -> None:
-        super().__init__()
         
+        super().__init__()
+        self.model = SentenceTransformer(model_name_or_path)
 
+    def index(self, texts: list[LabeledText]) -> None:
+        self.texts = texts
+        self.text_embeddings = self.model.encode([text["text"] for text in texts], convert_to_numpy=False, convert_to_tensor=True)
 
+    def query(self, query: str, top_k: int = -1) -> list[tuple[LabeledText, float]]:
+        query_embedding = self.model.encode(query, convert_to_numpy=False)
+        # compute cosine similarity
+        if top_k == -1:
+            top_k = len(self.texts)
+        cos_sim = util.cos_sim(self.text_embeddings, query_embedding).squeeze(1)
+        top_results, top_results_idx = torch.topk(cos_sim, k=top_k)
+        top_results = top_results.tolist()
+        top_results_idx = top_results_idx.tolist()
 
-    
+        return [(self.texts[idx], score) for idx, score in zip(top_results_idx, top_results)]
 
 
 
