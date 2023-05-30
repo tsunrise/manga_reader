@@ -3,7 +3,7 @@ from model.model import DetectionModel
 from PIL.Image import Image
 from typing import Optional, TypedDict
 from manga109utils import BoundingBox, Book
-from constant import TEXT_LABEL
+from constant import TEXT_LABEL, FRAME_LABEL
 from manga_ocr import MangaOcr
 from tqdm import tqdm
 import torch
@@ -205,8 +205,61 @@ class EndToEndTranscriptRetriever(TranscriptRetriever):
         return self.text_search_engine.query(query, top_k=top_k)        
 
 
-        
-        
-        
+class EndToEndSceneRetriever(SceneRetriever):
+    def __init__(self, detection_model: DetectionModel, image_encoder=None, text_encoder=None) -> None:
+        super().__init__()
 
-        
+        self.detection_model = detection_model
+        if not image_encoder:
+            image_encoder = SentenceTransformer('clip-ViT-B-32')
+        if not text_encoder:
+            text_encoder = SentenceTransformer('sentence-transformers/clip-ViT-B-32-multilingual-v1')
+        self.image_encoder = image_encoder
+        self.text_encoder = text_encoder
+
+    def _get_crops(self, images: list[Image]) -> list[LabeledCrops]:
+        bounding_boxes_raw = self.detection_model.predict(images)
+        crops: list[LabeledCrops] = []
+        for page in range(len(images)):
+            bounding_boxes = bounding_boxes_raw[page]
+            for bounding_box, score in bounding_boxes:
+                if bounding_box.bbtype != FRAME_LABEL:
+                    continue
+                data = images[page].crop((bounding_box.xmin, bounding_box.ymin, bounding_box.xmax, bounding_box.ymax))
+                crops.append({
+                    "data": data,
+                    "page": page,
+                    "location": bounding_box,
+                    "bb_score": score,
+                })
+
+        return crops
+    
+    def index(self, images: list[Image], batch_size: int = 8) -> None:
+        print("Detecting frames...")
+        self.scenes = self._get_crops(images)
+        # for each scene, get the scene embedding using image encoder
+        all_embeddings = []
+        iterator = range(0, len(self.scenes), batch_size)
+        for batch_idx in tqdm(iterator, desc="Encoding scenes"):
+            batch = self.scenes[batch_idx:batch_idx + batch_size]
+            batch_embeddings = self.image_encoder.encode([scene["data"] for scene in batch], convert_to_numpy=False, convert_to_tensor=True)
+            all_embeddings.extend(batch_embeddings)
+        self.scene_embeddings = torch.stack(all_embeddings) # (n, 768)
+
+    def index_book(self, book: Book, max_pages=None) -> None:
+        # load images
+        images = [page.get_image() for page in book.get_page_iter(max_pages)]
+        self.index(images)
+
+    def query(self, scene_description: str, top_k: int = -1) -> list[int]:
+        query_embedding = self.text_encoder.encode(scene_description, convert_to_numpy=False)
+        # compute cosine similarity
+        if top_k == -1:
+            top_k = len(self.scenes)
+        cos_sim = util.cos_sim(self.scene_embeddings, query_embedding).squeeze(1)
+        top_results, top_results_idx = torch.topk(cos_sim, k=top_k)
+        top_results = top_results.tolist()
+        top_results_idx = top_results_idx.tolist()
+
+        return [(self.scenes[idx], score) for idx, score in zip(top_results_idx, top_results)]
