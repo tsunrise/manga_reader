@@ -21,29 +21,25 @@ class LabeledText(TypedDict):
     page: int
     location: BoundingBox
 
-class TranscriptRetriever(ABC):
-    def __init__(self) -> None:
-        super().__init__()
-
+class Retriever(ABC):
     @abstractmethod
-    def query(self, dialogue: str, top_k: int = -1) -> list[LabeledText]:
+    def index(self, images: list[Image]) -> None:
         """
-        Return a list of page indices of the retrieved transcripts.
+        Index the given images.
         """
         pass
 
-
-class SceneRetriever(ABC):
-    def __init__(self) -> None:
-        super().__init__()
+    def index_manga109_book(self, book: Book, max_pages=None) -> None:
+        # load images
+        images = [page.get_image() for page in book.get_page_iter(max_pages)]
+        self.index(images)
 
     @abstractmethod
-    def query(self, scene_description: str, top_k: int = -1) -> list[int]:
+    def query(self, query: str, top_k: int = -1) -> list[int]:
         """
-        Return a list of page indices of the retrieved scenes.
+        Return a list of page indices that match the query.
         """
         pass
-
 
 class TextSearchEngine(ABC):
     def __init__(self) -> None:
