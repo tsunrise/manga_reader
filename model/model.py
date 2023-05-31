@@ -96,7 +96,7 @@ class DetectionModel(ABC):
             seed=config.seed,
             data_seed=config.seed)
 
-        train_dataset, val_dataset, test_dataset = dataset.train_test_split(train_size=0.8, val_size=0.1, seed=config.seed)
+        train_dataset, val_dataset, test_dataset = dataset.train_val_test_split(train_size=0.8, val_size=0.1, seed=config.seed)
 
         opt = torch.optim.AdamW(self.model.parameters(), lr=config.learning_rate)
 
