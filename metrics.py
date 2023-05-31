@@ -8,6 +8,10 @@ import csv
 from manga109utils import Book, Page
 from sentence_transformers import SentenceTransformer, util as sentence_util
 import random
+import openai
+import dsp
+from tqdm import tqdm
+import os
 
 
 def evaluate_bounding_boxes(expected: list[list[BoundingBox]], pred: list[list[tuple[BoundingBox, float]]]) -> dict:
@@ -108,14 +112,40 @@ def create_transcript_retrieval_query_set_for_book(book: Book, filter_model: Sen
 
     return {'queries': sampled_queries, 'expected': expected}
 
-def paraphrase_query_set(query_set: QuerySet) -> QuerySet:
+def paraphrase_query_set(query_set: QuerySet, model: str = "gpt-4") -> QuerySet:
     """
     Paraphrases a query set by replacing each query with its paraphrases.
-    We may use gpt-3.5-turbo here to paraphrase the query.
+    Model can be gpt-3.5-turbo or gpt-4.
     """
+    lm = dsp.GPT3(model=model, api_key=os.environ.get("OPENAI_API_KEY"), model_type="chat")
+    dsp.settings.configure(lm=lm)
 
-    # TODO
-    raise NotImplementedError()
+    Sentence = dsp.Type(
+            prefix="Original Sentence:", 
+            desc="${the sentence to be paraphrased}"
+        )
+
+    Paraphrase = dsp.Type(
+            prefix="Paraphrase:", 
+            desc="${the paraphrased version of the sentence}"
+        )
+
+    paraphrase_template = dsp.Template(
+            instructions="Paraphrase sentences in Japanese", 
+            sentence=Sentence(), 
+            paraphrase=Paraphrase()
+        )
+
+    queries = query_set["queries"]
+    paraphrased_queries = []
+    for query in tqdm(queries, desc="Generating Paraphrases"):
+        states_ex = dsp.Example(sentence=query, demos=[]) # zero shot works well 
+        states_ex, states_compl = dsp.generate(paraphrase_template)(states_ex, stage='paraphrase')
+        paraphrased_queries.append(states_compl.paraphrase)
+    
+    # replace original queries with paraphrased ones 
+    query_set["queries"] = paraphrased_queries
+    return query_set
 
 def save_query_set(query_set: QuerySet, path: str) -> None:
     import json
