@@ -75,7 +75,7 @@ class MangaDataset(Dataset):
     """
     A dataset of manga pages, annotated with bounding boxes for frames and text, using the COCO format.
     """
-    def __init__(self, preprocess: ImageProcessor, book = None, root = MANGA109_ROOT, text_annotations = True, frame_annotations = True):
+    def __init__(self, preprocess: ImageProcessor, book = None, root = MANGA109_ROOT, text_annotations = True, frame_annotations = True, exclude_books: Optional[list[str]] = None):
         super().__init__()
         dataset = Manga109Dataset(root)
         if book is None:
@@ -87,8 +87,12 @@ class MangaDataset(Dataset):
         else:
             raise TypeError(f"book must be Book or list[Book] or None, not {type(book)}")
         self.pages: list[ProcessedPage] = []
+        exclude_books = set(exclude_books) if exclude_books is not None else set()
         if not (isinstance(book, list) and len(books) == 0):
             for book in tqdm(books, desc="Loading Annotations", total=109):
+                if book.title in exclude_books:
+                    print(f"Skipping {book.title} as they are used for end-to-end evaluation.")
+                    continue
                 for page in book.get_page_iter():
                     self.pages.append(ProcessedPage(page))
 
@@ -121,14 +125,15 @@ class MangaDataset(Dataset):
         dataset.pages = pages
         return dataset
 
-    def train_test_split(self, train_size=0.8, seed=42):
+    def train_val_test_split(self, train_size=0.8, val_size=0.1, seed=42):
         import numpy as np
         indices = np.arange(len(self))
         np.random.seed(seed)
         np.random.shuffle(indices)
         train_indices = indices[:int(len(self) * train_size)]
-        test_indices = indices[int(len(self) * train_size):]
-        return self.gather(train_indices), self.gather(test_indices)
+        val_indices = indices[int(len(self) * train_size):int(len(self) * (train_size + val_size))]
+        test_indices = indices[int(len(self) * (train_size + val_size)):]
+        return self.gather(train_indices), self.gather(val_indices), self.gather(test_indices)
     
 def build_collate_fn(transform: ImageProcessor, with_labels = True):
     if with_labels:
