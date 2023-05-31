@@ -37,7 +37,7 @@ class Retriever(ABC):
     @abstractmethod
     def query(self, query: str, top_k: int = -1) -> list[int]:
         """
-        Return a list of page indices that match the query.
+        Return a list of page indices that match the query, ranked by relevance.
         """
         pass
 
@@ -143,7 +143,7 @@ class SentBertMultilingual(TextSearchEngine):
         return [(self.texts[idx], score) for idx, score in zip(top_results_idx, top_results)]
 
 
-class EndToEndTranscriptRetriever(TranscriptRetriever):
+class EndToEndTranscriptRetriever(Retriever):
     def __init__(self, detection_model: DetectionModel, manga_ocr_model: Optional[MangaOcr]=None, text_search_engine: Optional[TextSearchEngine]=None) -> None:
         super().__init__()
 
@@ -196,12 +196,17 @@ class EndToEndTranscriptRetriever(TranscriptRetriever):
         images = [page.get_image() for page in book.get_page_iter(max_pages)]
         self.index(images)
 
+    # TODO: save and load index
 
-    def query(self, query: str, top_k: int = -1) -> list[tuple[LabeledText, float]]:
+    def query_plus(self, query: str, top_k: int = -1) -> list[tuple[LabeledText, float]]:
         return self.text_search_engine.query(query, top_k=top_k)        
+    
+    def query(self, query: str, top_k: int = -1) -> list[int]:
+        results = self.query_plus(query, top_k=top_k)
+        return [result[0]["page"] for result in results]
 
 
-class EndToEndSceneRetriever(SceneRetriever):
+class EndToEndSceneRetriever(Retriever):
     def __init__(self, detection_model: DetectionModel, image_encoder=None, text_encoder=None) -> None:
         super().__init__()
 
