@@ -108,6 +108,25 @@ def create_transcript_retrieval_query_set_for_book(book: Book, filter_model: Sen
 
     return {'queries': sampled_queries, 'expected': expected}
 
+def paraphrase_query_set(query_set: QuerySet) -> QuerySet:
+    """
+    Paraphrases a query set by replacing each query with its paraphrases.
+    We may use gpt-3.5-turbo here to paraphrase the query.
+    """
+
+    # TODO
+    raise NotImplementedError()
+
+def save_query_set(query_set: QuerySet, path: str) -> None:
+    import json
+    with open(path, 'w') as f:
+        json.dump(query_set, f)
+
+def load_query_set(path: str) -> QuerySet:
+    import json
+    with open(path, 'r') as f:
+        query_set = json.load(f)
+    return query_set
 
 
 
