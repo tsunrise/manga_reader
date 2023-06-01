@@ -2,24 +2,26 @@ from abc import ABC, abstractmethod
 from model.model import DetectionModel
 from PIL.Image import Image
 from typing import Optional, TypedDict
-from manga109utils import BoundingBox, Book
+from manga109utils import BoundingBoxDict, Book
 from constant import TEXT_LABEL, FRAME_LABEL
 from manga_ocr import MangaOcr
 from tqdm import tqdm
 import torch
 import numpy as np
 from sentence_transformers import SentenceTransformer, util
+from pathlib import Path
+import json
 
 
 class LabeledCrops(TypedDict):
     data: Image
     page: int
-    location: BoundingBox
+    location: BoundingBoxDict
 
 class LabeledText(TypedDict):
     text: str
     page: int
-    location: BoundingBox
+    location: BoundingBoxDict
 
 class Retriever(ABC):
     @abstractmethod
@@ -41,6 +43,24 @@ class Retriever(ABC):
         """
         pass
 
+    @abstractmethod
+    def save_index(self, path: Path) -> None:
+        """
+        Save the index to the given path (a directory)
+        """
+        path.mkdir(parents=True, exist_ok=True)
+        assert path.is_dir()
+        pass
+
+    @abstractmethod
+    def load_index(self, path: Path) -> None:
+        """
+        Load the index from the given path.
+        """
+        path.mkdir(parents=True, exist_ok=True)
+        assert path.is_dir()
+        pass
+
 class TextSearchEngine(ABC):
     def __init__(self) -> None:
         super().__init__()
@@ -57,6 +77,22 @@ class TextSearchEngine(ABC):
         """
         Return a list of top LabeledTexts.
         """
+        pass
+
+    @abstractmethod
+    def save_index(self, path: Path) -> None:
+        """
+        Save the index to the given path (a directory)
+        """
+        assert path.is_dir()
+        pass
+
+    @abstractmethod
+    def load_index(self, path: Path) -> None:
+        """
+        Load the index from the given path.
+        """
+        assert path.is_dir()
         pass
 
 class SentBertJapanese(TextSearchEngine):
@@ -118,7 +154,19 @@ class SentBertJapanese(TextSearchEngine):
         top_results_idx = top_results_idx.tolist()
         
         return [(self.texts[idx], score) for idx, score in zip(top_results_idx, top_results)]
-    
+
+    def save_index(self, path: Path) -> None:
+        super().save_index(path)
+        torch.save(self.text_embeddings, path / "text_embeddings.pt")
+        with open(path / "texts.json", "w") as f:
+            json.dump(self.texts, f, indent=2, ensure_ascii=False)
+
+    def load_index(self, path: Path) -> None:
+        super().load_index(path)
+        self.text_embeddings = torch.load(path / "text_embeddings.pt")
+        with open(path / "texts.json", "r") as f:
+            self.texts = json.load(f)
+
 
 class SentBertMultilingual(TextSearchEngine):
     def __init__(self, model_name_or_path="sentence-transformers/distiluse-base-multilingual-cased-v2") -> None:
@@ -141,6 +189,18 @@ class SentBertMultilingual(TextSearchEngine):
         top_results_idx = top_results_idx.tolist()
 
         return [(self.texts[idx], score) for idx, score in zip(top_results_idx, top_results)]
+    
+    def save_index(self, path: Path) -> None:
+        super().save_index(path)
+        torch.save(self.text_embeddings, path / "text_embeddings.pt")
+        with open(path / "texts.json", "w") as f:
+            json.dump(self.texts, f, indent=2, ensure_ascii=False)
+
+    def load_index(self, path: Path) -> None:
+        super().load_index(path)
+        self.text_embeddings = torch.load(path / "text_embeddings.pt")
+        with open(path / "texts.json", "r") as f:
+            self.texts = json.load(f)
 
 
 class EndToEndTranscriptRetriever(Retriever):
@@ -167,7 +227,7 @@ class EndToEndTranscriptRetriever(Retriever):
                 crops.append({
                     "data": data,
                     "page": page,
-                    "location": bounding_box,
+                    "location": bounding_box.to_dict(),
                     "bb_score": score,
                 })
 
@@ -196,14 +256,24 @@ class EndToEndTranscriptRetriever(Retriever):
         images = [page.get_image() for page in book.get_page_iter(max_pages)]
         self.index(images)
 
-    # TODO: save and load index
-
     def query_plus(self, query: str, top_k: int = -1) -> list[tuple[LabeledText, float]]:
         return self.text_search_engine.query(query, top_k=top_k)        
     
     def query(self, query: str, top_k: int = -1) -> list[int]:
         results = self.query_plus(query, top_k=top_k)
         return [result[0]["page"] for result in results]
+    
+    def save_index(self, path: Path) -> None:
+        super().save_index(path)
+        self.text_search_engine.save_index(path)
+        with open(path / "labeled_texts.json", "w") as f: # TODO: duplicate file as text_search_engine
+            json.dump(self.labeled_texts, f, indent=2, ensure_ascii=False)
+
+    def load_index(self, path: Path) -> None:
+        super().load_index(path)
+        self.text_search_engine.load_index(path)
+        with open(path / "labeled_texts.json", "r") as f:
+            self.labeled_texts = json.load(f)
 
 
 class EndToEndSceneRetriever(Retriever):
@@ -230,7 +300,7 @@ class EndToEndSceneRetriever(Retriever):
                 crops.append({
                     "data": data,
                     "page": page,
-                    "location": bounding_box,
+                    "location": bounding_box.to_dict(),
                     "bb_score": score,
                 })
 
