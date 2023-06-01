@@ -131,7 +131,7 @@ def paraphrase_query_set(query_set: QuerySet, model: str = "gpt-4") -> QuerySet:
         )
 
     paraphrase_template = dsp.Template(
-            instructions="Paraphrase sentences in Japanese", 
+            instructions="Please paraphrase the sentences in Japanese without using the original language.", 
             sentence=Sentence(), 
             paraphrase=Paraphrase()
         )
