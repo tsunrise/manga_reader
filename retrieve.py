@@ -308,15 +308,22 @@ class EndToEndSceneRetriever(Retriever):
     
     def index(self, images: list[Image], batch_size: int = 8) -> None:
         print("Detecting frames...")
-        self.scenes = self._get_crops(images)
+        scenes = self._get_crops(images)
         # for each scene, get the scene embedding using image encoder
         all_embeddings = []
-        iterator = range(0, len(self.scenes), batch_size)
+        iterator = range(0, len(scenes), batch_size)
         for batch_idx in tqdm(iterator, desc="Encoding scenes"):
-            batch = self.scenes[batch_idx:batch_idx + batch_size]
+            batch = scenes[batch_idx:batch_idx + batch_size]
             batch_embeddings = self.image_encoder.encode([scene["data"] for scene in batch], convert_to_numpy=False, convert_to_tensor=True)
             all_embeddings.extend(batch_embeddings)
         self.scene_embeddings = torch.stack(all_embeddings) # (n, 768)
+        self.scenes = []
+        for scene in scenes:
+            self.scenes.append({
+                "page": scene["page"],
+                "location": scene["location"],
+                "bb_score": scene["bb_score"],
+            })
 
     def index_book(self, book: Book, max_pages=None) -> None:
         # load images
@@ -327,10 +334,22 @@ class EndToEndSceneRetriever(Retriever):
         query_embedding = self.text_encoder.encode(scene_description, convert_to_numpy=False)
         # compute cosine similarity
         if top_k == -1:
-            top_k = len(self.scenes)
+            top_k = self.scene_embeddings.shape[0]
         cos_sim = util.cos_sim(self.scene_embeddings, query_embedding).squeeze(1)
         top_results, top_results_idx = torch.topk(cos_sim, k=top_k)
         top_results = top_results.tolist()
         top_results_idx = top_results_idx.tolist()
 
         return [(self.scenes[idx], score) for idx, score in zip(top_results_idx, top_results)]
+    
+    def save_index(self, path: Path) -> None:
+        super().save_index(path)
+        with open(path / "scenes.json", "w") as f:
+            json.dump(self.scenes, f, indent=2, ensure_ascii=False)
+        torch.save(self.scene_embeddings, path / "scene_embeddings.pt")
+
+    def load_index(self, path: Path) -> None:
+        super().load_index(path)
+        with open(path / "scenes.json", "r") as f:
+            self.scenes = json.load(f)
+        self.scene_embeddings = torch.load(path / "scene_embeddings.pt")
