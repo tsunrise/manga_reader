@@ -329,8 +329,8 @@ class EndToEndSceneRetriever(Retriever):
         # load images
         images = [page.get_image() for page in book.get_page_iter(max_pages)]
         self.index(images)
-
-    def query(self, scene_description: str, top_k: int = -1) -> list[int]:
+    
+    def query_plus(self, scene_description: str, top_k: int = -1) -> list[tuple[TypedDict, float]]:
         query_embedding = self.text_encoder.encode(scene_description, convert_to_numpy=False)
         # compute cosine similarity
         if top_k == -1:
@@ -339,7 +339,10 @@ class EndToEndSceneRetriever(Retriever):
         top_results, top_results_idx = torch.topk(cos_sim, k=top_k)
         top_results = top_results.tolist()
         top_results_idx = top_results_idx.tolist()
-        query_results = [(self.scenes[idx], score) for idx, score in zip(top_results_idx, top_results)]
+        return [(self.scenes[idx], score) for idx, score in zip(top_results_idx, top_results)]
+
+    def query(self, scene_description: str, top_k: int = -1) -> list[int]:
+        query_results = self.query_plus(scene_description, top_k=top_k)
         return [result[0]["page"] for result in query_results]
     
     def save_index(self, path: Path) -> None:
