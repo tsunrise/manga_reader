@@ -38,7 +38,7 @@ class BoundingBox(object):
             "ymin": self.ymin,
             "xmax": self.xmax,
             "ymax": self.ymax,
-            "id": self.id,
+            "id_": self.id,
             "bbtype": self.bbtype
         }
     
