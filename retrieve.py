@@ -339,8 +339,8 @@ class EndToEndSceneRetriever(Retriever):
         top_results, top_results_idx = torch.topk(cos_sim, k=top_k)
         top_results = top_results.tolist()
         top_results_idx = top_results_idx.tolist()
-
-        return [(self.scenes[idx], score) for idx, score in zip(top_results_idx, top_results)]
+        query_results = [(self.scenes[idx], score) for idx, score in zip(top_results_idx, top_results)]
+        return [result[0]["page"] for result in query_results]
     
     def save_index(self, path: Path) -> None:
         super().save_index(path)
