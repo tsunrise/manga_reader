@@ -31,7 +31,7 @@ class Retriever(ABC):
         """
         pass
 
-    def index_manga109_book(self, book: Book, max_pages=None) -> None:
+    def index_book(self, book: Book, max_pages=None) -> None:
         # load images
         images = [page.get_image() for page in book.get_page_iter(max_pages)]
         self.index(images)
@@ -202,8 +202,26 @@ class SentBertMultilingual(TextSearchEngine):
         with open(path / "texts.json", "r") as f:
             self.texts = json.load(f)
 
+class TextSearchMixin:
+    def set_text_search_engine(self, text_search_engine: TextSearchEngine) -> None:
+        self.text_search_engine = text_search_engine
 
-class EndToEndTranscriptRetriever(Retriever):
+    def query_plus(self, query: str, top_k: int = -1) -> list[tuple[LabeledText, float]]:
+        return self.text_search_engine.query(query, top_k=top_k)        
+    
+    def query(self, query: str, top_k: int = -1) -> list[int]:
+        results = self.query_plus(query, top_k=top_k)
+        return [result[0]["page"] for result in results]
+    
+    def save_index(self, path: Path) -> None:
+        super().save_index(path)
+        self.text_search_engine.save_index(path)
+
+    def load_index(self, path: Path) -> None:
+        super().load_index(path)
+        self.text_search_engine.load_index(path)
+
+class EndToEndTranscriptRetriever(TextSearchMixin, Retriever):
     def __init__(self, detection_model: DetectionModel, manga_ocr_model: Optional[MangaOcr]=None, text_search_engine: Optional[TextSearchEngine]=None) -> None:
         super().__init__()
 
@@ -213,7 +231,7 @@ class EndToEndTranscriptRetriever(Retriever):
         self.manga_ocr_model = manga_ocr_model
         if not text_search_engine:
             text_search_engine = SentBertJapanese()
-        self.text_search_engine = text_search_engine
+        self.set_text_search_engine(text_search_engine)
 
     def _get_crops(self, images: list[Image]) -> list[LabeledCrops]:
         bounding_boxes_raw = self.detection_model.predict(images)
@@ -237,11 +255,10 @@ class EndToEndTranscriptRetriever(Retriever):
         print("Detecting text regions...")
         crops = self._get_crops(images)
         # for each crop, get the text using mangaOCR
-        self.labeled_texts: list[LabeledText] = []
+        labeled_texts: list[LabeledText] = []
         for crop in tqdm(crops, desc="OCR"):
-            # TODO: use MangaOCR in batches to speed up inference
             text = self.manga_ocr_model(crop["data"])
-            self.labeled_texts.append({
+            labeled_texts.append({
                 "text": text,
                 "page": crop["page"],
                 "location": crop["location"],
@@ -249,32 +266,78 @@ class EndToEndTranscriptRetriever(Retriever):
             })
         # index the texts
         print("Indexing texts...")
-        self.text_search_engine.index(self.labeled_texts)
+        self.text_search_engine.index(labeled_texts)
+
+class GoldBoundingBoxRetriever(TextSearchMixin, Retriever):
+    def __init__(self, manga_ocr_model: Optional[MangaOcr]=None, text_search_engine: Optional[TextSearchEngine]=None) -> None:
+        super().__init__()
+
+        if not manga_ocr_model:
+            manga_ocr_model = MangaOcr()
+        self.manga_ocr_model = manga_ocr_model
+        if not text_search_engine:
+            text_search_engine = SentBertJapanese()
+        self.set_text_search_engine(text_search_engine)
+
+    def index(self, images: list[Image]) -> None:
+        raise NotImplementedError("GoldBoundingBoxRetriever only works with Manga109 dataset.")
+    
+    def _get_crops(self, book: Book, max_pages=None) -> list[LabeledCrops]:
+        crops: list[LabeledCrops] = []
+        for page in tqdm(book.get_page_iter(max_pages=max_pages), desc="Cropping"):
+            bbs = page.get_bbs()["text"]
+            for bb in bbs:
+                img = page.get_image().crop((bb.xmin, bb.ymin, bb.xmax, bb.ymax))
+                crops.append({
+                    "data": img,
+                    "page": page.page_index,
+                    "location": bb.to_dict(),
+                    "bb_score": 1.0,
+                })
+        return crops
 
     def index_book(self, book: Book, max_pages=None) -> None:
-        # load images
-        images = [page.get_image() for page in book.get_page_iter(max_pages)]
-        self.index(images)
+        crops = self._get_crops(book, max_pages=max_pages)
+        # for each crop, get the text using mangaOCR
+        labeled_texts: list[LabeledText] = []
+        for crop in tqdm(crops, desc="OCR"):
+            text = self.manga_ocr_model(crop["data"])
+            labeled_texts.append({
+                "text": text,
+                "page": crop["page"],
+                "location": crop["location"],
+                "bb_score": crop["bb_score"],
+            })
+        # index the texts
+        print("Indexing texts...")
+        self.text_search_engine.index(labeled_texts)
 
-    def query_plus(self, query: str, top_k: int = -1) -> list[tuple[LabeledText, float]]:
-        return self.text_search_engine.query(query, top_k=top_k)        
+
+class GoldTextRetriever(TextSearchMixin, Retriever):
+    def __init__(self, text_search_engine: Optional[TextSearchEngine]=None) -> None:
+        super().__init__()
+        if not text_search_engine:
+            text_search_engine = SentBertJapanese()
+        self.set_text_search_engine(text_search_engine)
+
+    def index(self, images: list[Image]) -> None:
+        raise NotImplementedError("GoldTextRetriever only works with Manga109 dataset.")
     
-    def query(self, query: str, top_k: int = -1) -> list[int]:
-        results = self.query_plus(query, top_k=top_k)
-        return [result[0]["page"] for result in results]
+    def index_book(self, book: Book, max_pages=None) -> None:
+        labeled_texts: list[LabeledText] = []
+        for page in tqdm(book.get_page_iter(max_pages=max_pages)):
+            bbs = page.get_bbs()["text"]
+            for bb in bbs:
+                labeled_texts.append({
+                    "text": bb.text,
+                    "page": page.page_index,
+                    "location": bb.to_dict(),
+                    "bb_score": 1.0,
+                })
+        print("Indexing texts...")
+        self.text_search_engine.index(labeled_texts)
+
     
-    def save_index(self, path: Path) -> None:
-        super().save_index(path)
-        self.text_search_engine.save_index(path)
-        with open(path / "labeled_texts.json", "w") as f: # TODO: duplicate file as text_search_engine
-            json.dump(self.labeled_texts, f, indent=2, ensure_ascii=False)
-
-    def load_index(self, path: Path) -> None:
-        super().load_index(path)
-        self.text_search_engine.load_index(path)
-        with open(path / "labeled_texts.json", "r") as f:
-            self.labeled_texts = json.load(f)
-
 
 class EndToEndSceneRetriever(Retriever):
     def __init__(self, detection_model: DetectionModel, image_encoder=None, text_encoder=None) -> None:
@@ -324,13 +387,8 @@ class EndToEndSceneRetriever(Retriever):
                 "location": scene["location"],
                 "bb_score": scene["bb_score"],
             })
-
-    def index_book(self, book: Book, max_pages=None) -> None:
-        # load images
-        images = [page.get_image() for page in book.get_page_iter(max_pages)]
-        self.index(images)
     
-    def query_plus(self, scene_description: str, top_k: int = -1) -> list[tuple[TypedDict, float]]:
+    def query_plus(self, scene_description: str, top_k: int = -1) -> list[tuple[dict, float]]:
         query_embedding = self.text_encoder.encode(scene_description, convert_to_numpy=False)
         # compute cosine similarity
         if top_k == -1:
