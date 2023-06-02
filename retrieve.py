@@ -268,7 +268,7 @@ class EndToEndTranscriptRetriever(TextSearchMixin, Retriever):
         print("Indexing texts...")
         self.text_search_engine.index(labeled_texts)
 
-class GoldBoundingBoxRetriever(TextSearchMixin, Retriever):
+class GoldBoundingBoxTextRetriever(TextSearchMixin, Retriever):
     def __init__(self, manga_ocr_model: Optional[MangaOcr]=None, text_search_engine: Optional[TextSearchEngine]=None) -> None:
         super().__init__()
 
@@ -286,10 +286,11 @@ class GoldBoundingBoxRetriever(TextSearchMixin, Retriever):
         crops: list[LabeledCrops] = []
         for page in tqdm(book.get_page_iter(max_pages=max_pages), desc="Cropping"):
             bbs = page.get_bbs()["text"]
+            page_img = page.get_image()
             for bb in bbs:
-                img = page.get_image().crop((bb.xmin, bb.ymin, bb.xmax, bb.ymax))
+                data = page_img.crop((bb.xmin, bb.ymin, bb.xmax, bb.ymax))
                 crops.append({
-                    "data": img,
+                    "data": data,
                     "page": page.page_index,
                     "location": bb.to_dict(),
                     "bb_score": 1.0,
@@ -337,42 +338,17 @@ class GoldTextRetriever(TextSearchMixin, Retriever):
         print("Indexing texts...")
         self.text_search_engine.index(labeled_texts)
 
-    
+class LabeledScene(TypedDict):
+    page: int
+    location: BoundingBoxDict
+    bb_score: float
 
-class EndToEndSceneRetriever(Retriever):
-    def __init__(self, detection_model: DetectionModel, image_encoder=None, text_encoder=None) -> None:
-        super().__init__()
-
-        self.detection_model = detection_model
-        if not image_encoder:
-            image_encoder = SentenceTransformer('clip-ViT-B-32')
-        if not text_encoder:
-            text_encoder = SentenceTransformer('sentence-transformers/clip-ViT-B-32-multilingual-v1')
+class SceneSearchMixin(ABC):
+    def set_encoders(self, image_encoder: SentenceTransformer, text_encoder: SentenceTransformer) -> None:
         self.image_encoder = image_encoder
         self.text_encoder = text_encoder
 
-    def _get_crops(self, images: list[Image]) -> list[LabeledCrops]:
-        bounding_boxes_raw = self.detection_model.predict(images)
-        crops: list[LabeledCrops] = []
-        for page in range(len(images)):
-            bounding_boxes = bounding_boxes_raw[page]
-            for bounding_box, score in bounding_boxes:
-                if bounding_box.bbtype != FRAME_LABEL:
-                    continue
-                data = images[page].crop((bounding_box.xmin, bounding_box.ymin, bounding_box.xmax, bounding_box.ymax))
-                crops.append({
-                    "data": data,
-                    "page": page,
-                    "location": bounding_box.to_dict(),
-                    "bb_score": score,
-                })
-
-        return crops
-    
-    def index(self, images: list[Image], batch_size: int = 8) -> None:
-        print("Detecting frames...")
-        scenes = self._get_crops(images)
-        # for each scene, get the scene embedding using image encoder
+    def set_scenes(self, scenes: list[LabeledCrops], batch_size: int) -> None:
         all_embeddings = []
         iterator = range(0, len(scenes), batch_size)
         for batch_idx in tqdm(iterator, desc="Encoding scenes"):
@@ -387,7 +363,7 @@ class EndToEndSceneRetriever(Retriever):
                 "location": scene["location"],
                 "bb_score": scene["bb_score"],
             })
-    
+
     def query_plus(self, scene_description: str, top_k: int = -1) -> list[tuple[dict, float]]:
         query_embedding = self.text_encoder.encode(scene_description, convert_to_numpy=False)
         # compute cosine similarity
@@ -414,3 +390,71 @@ class EndToEndSceneRetriever(Retriever):
         with open(path / "scenes.json", "r") as f:
             self.scenes = json.load(f)
         self.scene_embeddings = torch.load(path / "scene_embeddings.pt")
+
+class EndToEndSceneRetriever(SceneSearchMixin, Retriever):
+    def __init__(self, detection_model: DetectionModel, image_encoder=None, text_encoder=None, batch_size=8) -> None:
+        super().__init__()
+
+        self.detection_model = detection_model
+        if not image_encoder:
+            image_encoder = SentenceTransformer('clip-ViT-B-32')
+        if not text_encoder:
+            text_encoder = SentenceTransformer('sentence-transformers/clip-ViT-B-32-multilingual-v1')
+        self.set_encoders(image_encoder, text_encoder)
+        self.batch_size = batch_size
+
+    def _get_crops(self, images: list[Image]) -> list[LabeledCrops]:
+        bounding_boxes_raw = self.detection_model.predict(images)
+        crops: list[LabeledCrops] = []
+        for page in range(len(images)):
+            bounding_boxes = bounding_boxes_raw[page]
+            for bounding_box, score in bounding_boxes:
+                if bounding_box.bbtype != FRAME_LABEL:
+                    continue
+                data = images[page].crop((bounding_box.xmin, bounding_box.ymin, bounding_box.xmax, bounding_box.ymax))
+                crops.append({
+                    "data": data,
+                    "page": page,
+                    "location": bounding_box.to_dict(),
+                    "bb_score": score,
+                })
+
+        return crops
+    
+    def index(self, images: list[Image]) -> None:
+        scenes = self._get_crops(images)
+        self.set_scenes(scenes, batch_size=self.batch_size)
+
+class GoldBoundingBoxSceneRetriever(SceneSearchMixin, Retriever):
+    def __init__(self, image_encoder=None, text_encoder=None, batch_size=8) -> None:
+        super().__init__()
+        if not image_encoder:
+            image_encoder = SentenceTransformer('clip-ViT-B-32')
+        if not text_encoder:
+            text_encoder = SentenceTransformer('sentence-transformers/clip-ViT-B-32-multilingual-v1')
+        self.set_encoders(image_encoder, text_encoder)
+        self.batch_size = batch_size
+
+    def _get_crops(self, book: Book) -> list[LabeledCrops]:
+        crops: list[LabeledCrops] = []
+        for page in tqdm(book.get_page_iter(), desc="Get frames"):
+            bounding_boxes = page.get_bbs()["frame"]
+            img = page.get_image()
+            for bounding_box in bounding_boxes:
+                data = img.crop((bounding_box.xmin, bounding_box.ymin, bounding_box.xmax, bounding_box.ymax))
+                crops.append({
+                    "data": data,
+                    "page": page.page_index,
+                    "location": bounding_box.to_dict(),
+                    "bb_score": 1.0,
+                })
+
+        return crops
+    
+    def index(self, images: list[Image]) -> None:
+        raise NotImplementedError("GoldBoundingBoxSceneRetriever only works with Manga109 books")
+    
+    def index_book(self, book: Book, max_pages=None) -> None:
+        scenes = self._get_crops(book)
+        self.set_scenes(scenes, batch_size=self.batch_size)
+    
