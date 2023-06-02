@@ -208,9 +208,9 @@ def csv_to_query_sets(csv_file):
         reader = csv.reader(f)
         next(reader)
         for row in reader:
-            english_query_set["expected"].append(row[0])
+            english_query_set["expected"].append(int(row[0]))
             english_query_set["queries"].append(row[1])
-            japanese_query_set["expected"].append(row[0])
+            japanese_query_set["expected"].append(int(row[0]))
             japanese_query_set["queries"].append(row[2])
 
     return english_query_set, japanese_query_set
