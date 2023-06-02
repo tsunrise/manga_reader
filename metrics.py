@@ -193,6 +193,27 @@ def load_query_set(path: str) -> QuerySet:
         query_set = json.load(f)
     return query_set
 
+def query_sets_to_csv(english_query_set: QuerySet, japanese_query_set: QuerySet, output_file):
+    with open(output_file, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["page", "english", "japanese"])
+        for i in range(len(english_query_set["queries"])):
+            assert english_query_set["expected"][i] == japanese_query_set["expected"][i]
+            writer.writerow([english_query_set["expected"][i], english_query_set["queries"][i], japanese_query_set["queries"][i]])
+
+def csv_to_query_sets(csv_file):
+    english_query_set: QuerySet = {"queries": [], "expected": []}
+    japanese_query_set: QuerySet = {"queries": [], "expected": []}
+    with open(csv_file, "r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        next(reader)
+        for row in reader:
+            english_query_set["expected"].append(row[0])
+            english_query_set["queries"].append(row[1])
+            japanese_query_set["expected"].append(row[0])
+            japanese_query_set["queries"].append(row[2])
+
+    return english_query_set, japanese_query_set
 
 
         
