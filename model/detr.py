@@ -38,7 +38,7 @@ class DetrImagePipeline(ImageProcessor):
             labels = item["labels"]
             for box, score, label in zip(boxes, scores, labels):
                 xmin, ymin, xmax, ymax = box
-                item_result.append((BoundingBox(float(xmin), float(ymin), float(xmax), float(ymax), bbtype=label), score))
+                item_result.append((BoundingBox(float(xmin), float(ymin), float(xmax), float(ymax), bbtype=int(label)), float(score)))
             result.append(item_result)
         return result
     

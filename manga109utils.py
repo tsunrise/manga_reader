@@ -4,6 +4,15 @@ import manga109api
 import pathlib
 import os
 from constant import MANGA109_ROOT
+from typing import TypedDict
+
+class BoundingBoxDict(TypedDict):
+    xmin: float
+    ymin: float
+    xmax: float
+    ymax: float
+    id: str
+    bbtype: str
 
 class BoundingBox(object):
     def __init__(self, xmin=None, ymin=None, xmax=None, ymax=None,
@@ -22,6 +31,20 @@ class BoundingBox(object):
         else:
             self.panels = panels
         self.bbtype = bbtype
+
+    def to_dict(self):
+        return {
+            "xmin": self.xmin,
+            "ymin": self.ymin,
+            "xmax": self.xmax,
+            "ymax": self.ymax,
+            "id_": self.id,
+            "bbtype": self.bbtype
+        }
+    
+    @classmethod
+    def from_dict(cls, m):
+        return cls(**m)
 
     def init_dict(self, d):
         self.dict = d
