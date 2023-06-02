@@ -458,3 +458,33 @@ class GoldBoundingBoxSceneRetriever(SceneSearchMixin, Retriever):
         scenes = self._get_crops(book)
         self.set_scenes(scenes, batch_size=self.batch_size)
     
+class BaselineSceneRetriever(SceneSearchMixin, Retriever):
+    def __init__(self, image_encoder=None, text_encoder=None, batch_size=8) -> None:
+        super().__init__()
+        if not image_encoder:
+            image_encoder = SentenceTransformer('clip-ViT-B-32')
+        if not text_encoder:
+            text_encoder = SentenceTransformer('sentence-transformers/clip-ViT-B-32-multilingual-v1')
+        self.set_encoders(image_encoder, text_encoder)
+        self.batch_size = batch_size
+
+
+    def _get_crops(self, book: Book) -> list[LabeledCrops]:
+        crops: list[LabeledCrops] = []
+        for page in tqdm(book.get_page_iter(), desc="Get frames"):
+            img = page.get_image()
+            crops.append({
+                    "data": img,
+                    "page": page.page_index,
+                    "location": {},
+                    "bb_score": 1.0,
+                })
+
+        return crops
+    
+    def index(self, images: list[Image]) -> None:
+        raise NotImplementedError("GoldBoundingBoxSceneRetriever only works with Manga109 books")
+    
+    def index_book(self, book: Book, max_pages=None) -> None:
+        scenes = self._get_crops(book)
+        self.set_scenes(scenes, batch_size=self.batch_size)
