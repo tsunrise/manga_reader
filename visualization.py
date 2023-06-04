@@ -1,6 +1,7 @@
+from typing import Union
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from retrieve import EndToEndSceneRetriever
+from retrieve import EndToEndSceneRetriever, EndToEndTranscriptRetriever
 from PIL import Image
 
 def visualize_scene_retrieval(scene_retriever, book, test_queries, test_expects, top_k=5, offset=0.2):
@@ -28,7 +29,7 @@ def visualize_scene_retrieval(scene_retriever, book, test_queries, test_expects,
     plt.show()
 
 
-def visualize_scene_retrieval_novel_book(scene_retriever: EndToEndSceneRetriever, images: list[Image.Image], test_queries, top_k=5, offset=0.2):
+def visualize_scene_retrieval_novel_book(scene_retriever: Union[EndToEndSceneRetriever, EndToEndTranscriptRetriever], images: list[Image.Image], test_queries, top_k=5, offset=0.2):
   for query in test_queries:
     print(f"query: {query}")
     result = scene_retriever.query_plus(query, top_k=5)
