@@ -147,6 +147,41 @@ def paraphrase_query_set(query_set: QuerySet, model: str = "gpt-4") -> QuerySet:
     query_set["queries"] = paraphrased_queries
     return query_set
 
+def translate_query_set(query_set: QuerySet, model: str = "gpt-4", src: str = "English", target: str=  "Japanese") -> QuerySet:
+    """
+    Translate a query set by replacing each query with its translation.
+    Model can be gpt-3.5-turbo or gpt-4.
+    """
+    lm = dsp.GPT3(model=model, api_key=os.environ.get("OPENAI_API_KEY"), model_type="chat")
+    dsp.settings.configure(lm=lm)
+
+    Sentence = dsp.Type(
+            prefix=f"Original Sentence in {src}:", 
+            desc="${the sentence to be translated}"
+        )
+
+    Translation = dsp.Type(
+            prefix=f"Translated Sentence in {target}:", 
+            desc="${the translated version of the sentence.}"
+        )
+
+    translation_template = dsp.Template(
+            instructions=f"Please translate the sentences from {src} to {target}.", 
+            sentence=Sentence(), 
+            translation=Translation()
+        )
+
+    queries = query_set["queries"]
+    translated_queries = []
+    for query in tqdm(queries, desc="Generating Translations"):
+        states_ex = dsp.Example(sentence=query, demos=[]) # zero shot works well 
+        states_ex, states_compl = dsp.generate(translation_template)(states_ex, stage='translate')
+        translated_queries.append(states_compl.translation)
+    
+    # replace original queries with paraphrased ones 
+    query_set["queries"] = translated_queries
+    return query_set
+
 def save_query_set(query_set: QuerySet, path: str) -> None:
     import json
     with open(path, 'w') as f:
@@ -158,6 +193,27 @@ def load_query_set(path: str) -> QuerySet:
         query_set = json.load(f)
     return query_set
 
+def query_sets_to_csv(english_query_set: QuerySet, japanese_query_set: QuerySet, output_file):
+    with open(output_file, "w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["page", "english", "japanese"])
+        for i in range(len(english_query_set["queries"])):
+            assert english_query_set["expected"][i] == japanese_query_set["expected"][i]
+            writer.writerow([english_query_set["expected"][i], english_query_set["queries"][i], japanese_query_set["queries"][i]])
+
+def csv_to_query_sets(csv_file):
+    english_query_set: QuerySet = {"queries": [], "expected": []}
+    japanese_query_set: QuerySet = {"queries": [], "expected": []}
+    with open(csv_file, "r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        next(reader)
+        for row in reader:
+            english_query_set["expected"].append(int(row[0]))
+            english_query_set["queries"].append(row[1])
+            japanese_query_set["expected"].append(int(row[0]))
+            japanese_query_set["queries"].append(row[2])
+
+    return english_query_set, japanese_query_set
 
 
         
