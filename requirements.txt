@@ -11,3 +11,4 @@ accelerate
 ipadic
 git+https://github.com/stanfordnlp/dsp
 openai
+pillow-avif-plugin
